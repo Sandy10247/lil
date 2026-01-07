@@ -35,7 +35,7 @@ var (
 	baseURL         string
 	redirectTpl     *template.Template
 	shortURLLength  = 8
-	redirectTplPath = "./templates/redirect_page.tpl"
+	redirectTplPath = "./templates/redirect_page.html"
 )
 
 func getRedisPool(address string, password string, maxActive int, maxIdle int, timeout time.Duration) *redis.Pool {
@@ -131,14 +131,21 @@ func main() {
 		kf.Duration("cache.timeout")*time.Millisecond,
 	))
 
+	// redirect html
+	// "/p/<short_url>"
+	htmlUrl := fmt.Sprintf("/%v/{uri}", pageRedirectPrefix)
+
 	// Routing
 	router := chi.NewRouter()
+	// Middleware
 	router.Use(middleware.Logger)
 	router.Use(middleware.RedirectSlashes)
-	router.Get("/", handleWelcome)
+	router.Get("/", handleWelcome) // Home
+	// redirect urls
 	router.Get("/{uri}", handleRedirect)
-	router.Get(fmt.Sprintf("/%v/{uri}", pageRedirectPrefix), handlePageRedirect)
+	router.Get(htmlUrl, handlePageRedirect)
 	router.Get("/api/{uri}", handleGetRedirects)
+	// manage
 	router.Delete("/api/{uri}", handleDelete)
 	router.Post("/api/new", handleCreate)
 
