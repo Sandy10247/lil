@@ -13,6 +13,14 @@ import (
 	"gitlab.zerodha.tech/commons/lil/store"
 )
 
+// Errors
+var (
+	ErrSomethingWentWrong = errors.New("ErrSomethingWentWrong")
+	ErrNotFound           = errors.New("ErrNotFound")
+	ErrCouldNotRedirect   = errors.New("ErrCouldNotRedirect")
+	ErrInvalidInput       = errors.New("ErrInvalidInput")
+)
+
 // Response represents response struct.
 type Response struct {
 	Data  interface{} `json:"data,omitempty"`
@@ -37,7 +45,7 @@ type Params struct {
 // generateRandomString generates a random string of given length n.
 func generateRandomString(n int) (string, error) {
 	const dictionary = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
-	var bytes = make([]byte, n)
+	bytes := make([]byte, n)
 	if _, err := rand.Read(bytes); err != nil {
 		return "", err
 	}
@@ -69,6 +77,7 @@ func sendJSONResp(data interface{}, err error, code int, w http.ResponseWriter) 
 	r, errJSON := json.Marshal(resp)
 	if errJSON != nil {
 		log.Printf("error marshalling response: %v", errJSON)
+		return
 	}
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.WriteHeader(code)
@@ -77,7 +86,7 @@ func sendJSONResp(data interface{}, err error, code int, w http.ResponseWriter) 
 
 // sendGeneralError sends 500 internal server error, used to send unknown server errors to user.
 func sendGeneralError(w http.ResponseWriter) {
-	sendJSONResp(nil, fmt.Errorf("Something went wrong"), http.StatusInternalServerError, w)
+	sendJSONResp(nil, fmt.Errorf("%w :- General Error", ErrSomethingWentWrong), http.StatusNotFound, w)
 }
 
 // createShortURL takes full url and creates a random short url.
@@ -91,6 +100,7 @@ func createShortURL(params *Params) (string, error) {
 	)
 
 	if params.ShortURI == "" {
+		// Iteratively generate random string to which does not Exit in the DB
 		for {
 			// Generate random string.
 			id, err = generateRandomString(shortURLLength)
@@ -128,29 +138,28 @@ func createShortURL(params *Params) (string, error) {
 
 func handleWelcome(w http.ResponseWriter, r *http.Request) {
 	sendJSONResp("welcome", nil, http.StatusOK, w)
-	return
 }
 
 // handleRedirect handles short url to actual url redirect.
 func handleRedirect(w http.ResponseWriter, r *http.Request) {
 	uri := chi.URLParam(r, "uri")
 	url, _, err := str.Get(uri)
-	if err == store.ErrNotFound {
-		sendJSONResp(nil, fmt.Errorf("Not found"), http.StatusNotFound, w)
+	if errors.Is(err, store.ErrNotFound) {
+		sendJSONResp(nil, fmt.Errorf("%w :- handle redirect", ErrNotFound), http.StatusNotFound, w)
 		return
 	} else if err != nil {
 		log.Printf("error getting short url: %v", err)
 		sendGeneralError(w)
 		return
 	}
-	http.Redirect(w, r, string(url), 301)
+	http.Redirect(w, r, string(url), http.StatusMovedPermanently)
 }
 
 func handlePageRedirect(w http.ResponseWriter, r *http.Request) {
 	uri := chi.URLParam(r, "uri")
 	url, meta, err := str.Get(uri)
 	if err == store.ErrNotFound {
-		sendJSONResp(nil, fmt.Errorf("Not found"), http.StatusNotFound, w)
+		sendJSONResp(nil, fmt.Errorf("%w :- handlePageRedirect", ErrNotFound), http.StatusNotFound, w)
 		return
 	} else if err != nil {
 		log.Printf("error getting short url: %v", err)
@@ -168,7 +177,7 @@ func handlePageRedirect(w http.ResponseWriter, r *http.Request) {
 	var tplBody bytes.Buffer
 	if err := redirectTpl.Execute(&tplBody, &params); err != nil {
 		log.Printf("error executing redirect template: %v", err)
-		sendJSONResp(nil, fmt.Errorf("Couldn't redirect"), http.StatusInternalServerError, w)
+		sendJSONResp(nil, fmt.Errorf("%w :- handle redirect", ErrCouldNotRedirect), http.StatusNotFound, w)
 		return
 	}
 	w.WriteHeader(http.StatusOK)
@@ -178,16 +187,16 @@ func handlePageRedirect(w http.ResponseWriter, r *http.Request) {
 // handleCreate creates a new short url. Accepts one post params `url`
 // which is url which has to be shortened.
 func handleCreate(w http.ResponseWriter, r *http.Request) {
+	// Decode Request Body
 	params := &Params{}
-	decoder := json.NewDecoder(r.Body)
-	err := decoder.Decode(params)
+	err := json.NewDecoder(r.Body).Decode(params)
 	if err != nil {
-		sendJSONResp(nil, errors.New("Invalid input"), http.StatusBadRequest, w)
+		sendJSONResp(nil, fmt.Errorf("%w :- Handle Create, decode request body", ErrInvalidInput), http.StatusNotFound, w)
 		return
 	}
 	// Validate params
 	if params.URL == "" {
-		sendJSONResp(nil, fmt.Errorf("Invalid url"), http.StatusBadRequest, w)
+		sendJSONResp(nil, fmt.Errorf("%w :- Handle Create params.URL is empty", ErrInvalidInput), http.StatusNotFound, w)
 		return
 	}
 	// Create short url
@@ -204,7 +213,7 @@ func handleGetRedirects(w http.ResponseWriter, r *http.Request) {
 	uri := chi.URLParam(r, "uri")
 	_, _, err := str.Get(uri)
 	if err == store.ErrNotFound {
-		sendJSONResp(nil, fmt.Errorf("Not found"), http.StatusNotFound, w)
+		sendJSONResp(nil, fmt.Errorf("%w :- handleGetRedirects", ErrNotFound), http.StatusNotFound, w)
 		return
 	} else if err != nil {
 		log.Printf("error getting short url: %v", err)
@@ -219,7 +228,7 @@ func handleDelete(w http.ResponseWriter, r *http.Request) {
 	uri := chi.URLParam(r, "uri")
 	err := str.Del(uri)
 	if err == store.ErrNotFound {
-		sendJSONResp(nil, fmt.Errorf("Not found"), http.StatusNotFound, w)
+		sendJSONResp(nil, fmt.Errorf("%w :- handleDelete", ErrNotFound), http.StatusNotFound, w)
 		return
 	}
 	sendJSONResp(true, nil, http.StatusOK, w)

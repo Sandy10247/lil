@@ -58,18 +58,16 @@ func getRedisPool(address string, password string, maxActive int, maxIdle int, t
 	}
 }
 
-func init() {
+func readConfigFlags() {
 	// Init koanf.
 	kf = koanf.New(".")
 
 	// Initialize commandline flags.
 	f := flag.NewFlagSet("config", flag.ContinueOnError)
 	f.Usage = func() {
-		fmt.Println(f.FlagUsages())
-		os.Exit(0)
+		log.Fatalf("%v\n", f.FlagUsages())
 	}
-	f.StringSliceP("config", "c", []string{"config.toml"},
-		"Path to one or more config files (will be merged in order)")
+	f.StringSliceP("config", "c", []string{"config.toml"}, "Path to one or more config files (will be merged in order)")
 	f.StringSliceP("datasource", "d", []string{}, "Path to data source plugin. Can specify multiple values.")
 	f.StringSliceP("messenger", "m", []string{}, "Path to messenger plugin. Can specify multiple values.")
 	f.Bool("version", false, "Current version of the build.")
@@ -77,7 +75,12 @@ func init() {
 	f.Parse(os.Args[1:])
 
 	// Read config from files.
-	cFiles, _ := f.GetStringSlice("config")
+	cFiles, err := f.GetStringSlice("config")
+	if err != nil {
+		log.Fatalf("Failed to read --config flag values")
+	}
+
+	// iterate over "--config" flag values, and parse toml files
 	for _, c := range cFiles {
 		if err := kf.Load(file.Provider(c), toml.Parser()); err != nil {
 			log.Fatalf("error loading file: %v", err)
@@ -91,6 +94,9 @@ func init() {
 }
 
 func main() {
+	// read Config Flags
+	readConfigFlags()
+
 	// Display version and exit
 	if kf.Bool("version") {
 		fmt.Printf("Commit: %v\nBuild: %v\n", buildVersion, buildDate)
@@ -122,19 +128,19 @@ func main() {
 		kf.String("cache.password"),
 		kf.Int("cache.max_idle"),
 		kf.Int("cache.max_active"),
-		time.Duration(kf.Duration("cache.timeout"))*time.Millisecond,
+		kf.Duration("cache.timeout")*time.Millisecond,
 	))
 
 	// Routing
 	router := chi.NewRouter()
 	router.Use(middleware.Logger)
 	router.Use(middleware.RedirectSlashes)
-	router.Get("/", http.HandlerFunc(handleWelcome))
-	router.Get("/{uri}", http.HandlerFunc(handleRedirect))
-	router.Get(fmt.Sprintf("/%v/{uri}", pageRedirectPrefix), http.HandlerFunc(handlePageRedirect))
-	router.Get("/api/{uri}", http.HandlerFunc(handleGetRedirects))
-	router.Delete("/api/{uri}", http.HandlerFunc(handleDelete))
-	router.Post("/api/new", http.HandlerFunc(handleCreate))
+	router.Get("/", handleWelcome)
+	router.Get("/{uri}", handleRedirect)
+	router.Get(fmt.Sprintf("/%v/{uri}", pageRedirectPrefix), handlePageRedirect)
+	router.Get("/api/{uri}", handleGetRedirects)
+	router.Delete("/api/{uri}", handleDelete)
+	router.Post("/api/new", handleCreate)
 
 	// Run server
 	server := &http.Server{
