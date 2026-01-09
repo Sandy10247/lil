@@ -91,11 +91,13 @@ func (s *Store) Set(id string, url string, meta *store.Meta) error {
 	}
 	conn := s.pool.Get()
 	defer conn.Close()
+	// start transaction
 	conn.Send("MULTI")
 	// Store full url and meta in hashmap.
 	conn.Send("HMSET", s.idKey(id), "url", url, "meta", metaJSON)
 	// Store a reverse map of full url and id.
 	conn.Send("SET", s.urlKey(url), id)
+	// Queue up All Transactons for Execution
 	rep, err := redis.Values(conn.Do("EXEC"))
 	// Check if there are any errors.
 	for _, r := range rep {
@@ -114,9 +116,11 @@ func (s *Store) Del(id string) error {
 	}
 	conn := s.pool.Get()
 	defer conn.Close()
+	// Start
 	conn.Send("MULTI")
 	conn.Send("DEL", s.idKey(id))
 	conn.Send("DEL", s.urlKey(url))
+	// Queue up all Redis acts
 	rep, err := redis.Values(conn.Do("EXEC"))
 	// Check if there are any errors.
 	for _, r := range rep {

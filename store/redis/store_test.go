@@ -9,9 +9,7 @@ import (
 	"gitlab.zerodha.tech/commons/lil/store"
 )
 
-var (
-	mockRedis *miniredis.Miniredis
-)
+var mockRedis *miniredis.Miniredis
 
 func init() {
 	var err error
